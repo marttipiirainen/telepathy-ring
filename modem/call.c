@@ -1054,7 +1054,6 @@ modem_call_send_dtmf (ModemCall *self, char const *dialstring,
       G_TYPE_INVALID);
 }
 
-/* XXX: Ofono at the moment supports only fixed-duration tones */
 ModemRequest *
 modem_call_start_dtmf (ModemCall *self, char const tone,
                        ModemCallReply *callback,
@@ -1062,11 +1061,13 @@ modem_call_start_dtmf (ModemCall *self, char const tone,
 {
   char tones[2] = { tone };
 
+  DEBUG("%s",tones);
+
   RETURN_NULL_IF_NOT_VALID (self);
 
   return modem_request (MODEM_CALL (self),
       modem_oface_dbus_proxy (MODEM_OFACE (self->priv->service)),
-      "SendTones", reply_to_instance_request,
+      "StartTone", reply_to_instance_request,
       G_CALLBACK (callback), user_data,
       G_TYPE_STRING, tones,
       G_TYPE_INVALID);
@@ -1077,15 +1078,18 @@ modem_call_stop_dtmf (ModemCall *self,
                       ModemCallReply *callback,
                       gpointer user_data)
 {
+  DEBUG("enter");
+
   RETURN_NULL_IF_NOT_VALID (self);
 
   return modem_request (MODEM_CALL (self),
       modem_oface_dbus_proxy (MODEM_OFACE (self->priv->service)),
-      "StopTones", reply_to_stop_dtmf,
+      "StopTone", reply_to_instance_request,
       G_CALLBACK (callback), user_data,
       G_TYPE_INVALID);
 }
 
+#if 0
 static void
 reply_to_stop_dtmf (DBusGProxy *proxy,
                     DBusGProxyCall *call,
@@ -1117,6 +1121,7 @@ reply_to_stop_dtmf (DBusGProxy *proxy,
 
   g_clear_error (&error);
 }
+#endif
 
 GError *
 modem_call_new_error (guint causetype, guint cause, char const *prefixed)
