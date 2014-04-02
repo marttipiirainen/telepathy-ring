@@ -42,7 +42,7 @@ libmodem_glib_la_LIBADD = ${LIBADD}
 
 modem_HEADERS += call.h tones.h
 
-libmodem_glib_la_SOURCES += call-service.c call.c tones.c
+libmodem_glib_la_SOURCES += call-service.c call.c tones.c call-agent.c
 
 modem_HEADERS += sms.h sms-message.h sms-history.h
 

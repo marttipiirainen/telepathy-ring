@@ -106,4 +106,5 @@ ring_connection_manager_class_init(RingConnectionManagerClass *klass)
   modem_oface_register_type (MODEM_TYPE_SIM_SERVICE);
   modem_oface_register_type (MODEM_TYPE_SMS_SERVICE);
   modem_oface_register_type (MODEM_TYPE_CALL_SERVICE);
+  modem_oface_register_type (MODEM_TYPE_CALL_AGENT);
 }

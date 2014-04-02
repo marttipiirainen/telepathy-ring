@@ -65,6 +65,40 @@ GType modem_call_service_get_type (void);
   (G_TYPE_INSTANCE_GET_CLASS ((obj), \
       MODEM_TYPE_CALL_SERVICE, ModemCallServiceClass))
 
+typedef struct _ModemCallAgent ModemCallAgent;
+typedef struct _ModemCallAgentClass ModemCallAgentClass;
+typedef struct _ModemCallAgentPrivate ModemCallAgentPrivate;
+
+struct _ModemCallAgentClass
+{
+  ModemOfaceClass parent_class;
+};
+
+struct _ModemCallAgent
+{
+  ModemOface parent;
+  ModemCallAgentPrivate *priv;
+};
+
+GType modem_call_agent_get_type (void);
+
+/* TYPE MACROS */
+#define MODEM_TYPE_CALL_AGENT (modem_call_agent_get_type ())
+#define MODEM_CALL_AGENT(obj) \
+  (G_TYPE_CHECK_INSTANCE_CAST ((obj), \
+      MODEM_TYPE_CALL_AGENT, ModemCallAgent))
+#define MODEM_CALL_AGENT_CLASS(klass) \
+  (G_TYPE_CHECK_CLASS_CAST ((klass), \
+      MODEM_TYPE_CALL_AGENT, ModemCallAgentClass))
+#define MODEM_IS_CALL_AGENT(obj) \
+  (G_TYPE_CHECK_INSTANCE_TYPE ((obj), \
+      MODEM_TYPE_CALL_AGENT))
+#define MODEM_IS_CALL_AGENT_CLASS(klass) \
+  (G_TYPE_CHECK_CLASS_TYPE ((klass), MODEM_TYPE_CALL_AGENT))
+#define MODEM_CALL_AGENT_GET_CLASS(obj) \
+  (G_TYPE_INSTANCE_GET_CLASS ((obj), \
+      MODEM_TYPE_CALL_AGENT, ModemCallAgentClass))
+
 typedef struct _ModemCall ModemCall;
 typedef struct _ModemCallClass ModemCallClass;
 typedef struct _ModemCallPrivate ModemCallPrivate;
@@ -102,6 +136,7 @@ GType modem_call_get_type (void);
 
 #define MODEM_OFACE_CALL_MANAGER "org.ofono.VoiceCallManager"
 #define MODEM_OFACE_CALL         "org.ofono.VoiceCall"
+#define MODEM_OFACE_CALL_AGENT   "org.ofono.VoiceCallAgent"
 
 /**
  * Call properties

@@ -27,7 +27,7 @@
 #include <telepathy-glib/base-channel.h>
 #include <telepathy-glib/dbus-properties-mixin.h>
 #include <telepathy-glib/svc-channel.h>
-#include <ring-streamed-media-mixin.h>
+#include <src/ring-streamed-media-mixin.h>
 
 G_BEGIN_DECLS
 
