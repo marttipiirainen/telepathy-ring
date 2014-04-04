@@ -46,6 +46,7 @@ G_DEFINE_TYPE (ModemCallAgent, modem_call_agent, MODEM_TYPE_OFACE);
 struct _ModemCallAgentPrivate
 {
   gboolean agentServiceRegistered;
+  DBusGProxy *agentProxy;
 };
 
 /* ---------------------------------------------------------------------- */
@@ -81,11 +82,11 @@ modem_call_agent_init (ModemCallAgent *self)
    * the interface and proxy different when acting as agent */
 
   /* e.g. If we would provide interface */
-  /*self->priv->proxy =
+  self->priv->agentProxy =
     dbus_g_proxy_new_for_name(dbus_g_bus_get(DBUS_BUS_SYSTEM, NULL),
-      "Telepathy-ring.VoicecallAgent",
-      "/Telepathy-ring/VoicecallAgent",
-      "Telepathy-ring.VoicecallAgent");*/
+      MODEM_OFACE_CALL_AGENT,
+      VOICECALL_UNSOLICITED_AGENT_PATH,
+      MODEM_OFACE_CALL_AGENT);
 
   self->priv->agentServiceRegistered = FALSE;
 }
@@ -119,33 +120,19 @@ modem_call_agent_connect (ModemOface *_self)
     gboolean ret;
     ModemRequest *request;
 
-    /* Todo: How path should be actually given? Here an example from simkit */
-    //  agent_path = VOICECALL_UNSOLICITED_AGENT_PATH;
-    //  #define STK_UNSOLICITED_AGENT_PATH  "/simkitagent"
-    //  QDBusObjectPath stkAgentPath(STK_UNSOLICITED_AGENT_PATH);
-    //  QDBusPendingReply<> stkRegisterCall = stkIf->RegisterAgent(stkAgentPath);
-
-
-    /* And this is an example how PushNotification calls the agent */
-    // pn = dbus.Interface(bus.get_object('org.ofono', path),
-    //        'org.ofono.PushNotification')
+    DEBUG ("###piiramar### agent proxy=%p path=%s bus=%s interface=%s"
+    		, self->priv->agentProxy, dbus_g_proxy_get_path (self->priv->agentProxy), dbus_g_proxy_get_bus_name(self->priv->agentProxy), dbus_g_proxy_get_interface (self->priv->agentProxy));
+    DEBUG ("###piiramar### proxy=%p path=%s bus=%s interface=%s"
+    		, proxy, dbus_g_proxy_get_path (proxy), dbus_g_proxy_get_bus_name(proxy), dbus_g_proxy_get_interface (proxy));
 
     /* Register call agent in order to receive requests for playing local tones 
-     * Todo: Here it fails now!!! Should be checked what is still missing/how
-     * to call agent interface via proxy */
-    ret = dbus_g_proxy_call (proxy, "RegisterVoiceCallManagerAgent", NULL,
-                              G_TYPE_OBJECT, VOICECALL_UNSOLICITED_AGENT_PATH, 
-                              G_TYPE_INVALID, 
-                              G_TYPE_INVALID);
-
-    /* Maybe it would go something like this: */
-    // request = modem_request (MODEM_CALL (self),
-    //      proxy, "RegisterVoiceCallManagerAgent", 
-    //      NULL, NULL, NULL, NULL, G_TYPE_INVALID);
-      
+    */
+    dbus_g_proxy_call_no_reply(proxy, "RegisterVoicecallAgent",
+    		DBUS_TYPE_G_OBJECT_PATH, dbus_g_proxy_get_path(self->priv->agentProxy),
+    		G_TYPE_INVALID);
     /* Todo: Check also the error value if we need more information about fail */
-    if (ret)
-      priv->agentServiceRegistered = TRUE;
+    /*if (request)*/
+    priv->agentServiceRegistered = TRUE;
     }
 }
 
@@ -163,9 +150,9 @@ modem_call_agent_disconnect (ModemOface *_self)
   /* Unregister Voicecall Agent if we are registered */
   if (priv->agentServiceRegistered)
     ret = dbus_g_proxy_call (proxy, "UnregisterVoiceCallManagerAgent", NULL,
-                                G_TYPE_OBJECT, VOICECALL_UNSOLICITED_AGENT_PATH, 
-                                G_TYPE_INVALID, 
-                                G_TYPE_INVALID);
+    		DBUS_TYPE_G_OBJECT_PATH, dbus_g_proxy_get_path(self->priv->agentProxy),
+            G_TYPE_INVALID,
+            G_TYPE_INVALID);
                                 
   /* Todo: Do we even need to care or should we just use dbus_g_proxy_send? */
   if (ret)
@@ -188,7 +175,7 @@ modem_call_agent_class_init (ModemCallAgentClass *klass)
   object_class->dispose = modem_call_agent_dispose;
   object_class->finalize = modem_call_agent_finalize;
 
-  oface_class->ofono_interface = MODEM_OFACE_CALL_AGENT;
+  oface_class->ofono_interface = MODEM_OFACE_CALL_MANAGER;
   oface_class->connect = modem_call_agent_connect;
   oface_class->disconnect = modem_call_agent_disconnect;
 
@@ -214,7 +201,7 @@ RingbackTone (DBusConnection *conn,
 
   dbus_message_iter_get_basic(&iter, &playTone);
 
-  DEBUG ("%i", (int) playTone);
+  DEBUG ("%d", (int) playTone);
 
   /* Todo: Should we check here the call state first before
    * just playing the tone? If we would be able to get call
