@@ -44,11 +44,15 @@
 
 G_DEFINE_TYPE (ModemCallService, modem_call_service, MODEM_TYPE_OFACE);
 
+#define VOICECALL_AGENT_PATH  "/voicecallagent"
+#define VOICECALL_AGENT_IFACE "org.ofono.VoiceCallAgent"
+
 /* Properties */
 enum
 {
   PROP_NONE,
   PROP_EMERGENCY_NUMBERS,
+  PROP_ALERT_TONE_NEEDED,
   LAST_PROPERTY
 };
 
@@ -83,6 +87,10 @@ struct _ModemCallServicePrivate
 
   ModemCall *active, *hold;
 
+  /* Do we have in-band connection? */
+  gboolean alert_tone_needed;
+  DBusGProxy *alert_tone_agent_proxy;
+
   unsigned signals :1;
   unsigned :0;
 };
@@ -105,6 +113,17 @@ static ModemRequestCallNotify modem_call_conference_request_reply;
 
 static void on_modem_call_state (ModemCall *, ModemCallState,
     ModemCallService *);
+
+static DBusHandlerResult modem_call_agent_dbus_message_handler(
+		DBusConnection *conn, DBusMessage *msg, void *user_data);
+
+static void modem_call_agent_unregister(DBusConnection *connection,
+		void *user_data);
+
+static DBusObjectPathVTable modem_call_agent_table = {
+  .unregister_function = modem_call_agent_unregister,
+  .message_function    = modem_call_agent_dbus_message_handler,
+};
 
 /* ---------------------------------------------------------------------- */
 
@@ -144,6 +163,7 @@ modem_call_service_init (ModemCallService *self)
       g_str_hash, g_str_equal, NULL, g_object_unref);
 
   self->priv->forwarded = NULL;
+  self->priv->alert_tone_needed = FALSE; /* default assumption: user connection is OK */
 }
 
 static void
@@ -156,9 +176,13 @@ modem_call_service_get_property (GObject *object,
 
   switch (property_id)
     {
-    case PROP_EMERGENCY_NUMBERS:
-      g_value_set_boxed (value, modem_call_get_emergency_numbers (self));
-      break;
+  case PROP_EMERGENCY_NUMBERS:
+    g_value_set_boxed (value, modem_call_get_emergency_numbers (self));
+    break;
+
+  case PROP_ALERT_TONE_NEEDED:
+    g_value_set_boolean(value, self->priv->alert_tone_needed);
+    break;
 
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
@@ -284,11 +308,10 @@ modem_call_service_connect (ModemOface *_self)
 
   ModemCallService *self = MODEM_CALL_SERVICE (_self);
   ModemCallServicePrivate *priv = self->priv;
+  DBusGProxy *proxy = DBUS_PROXY (_self);
 
   if (!priv->signals)
     {
-      DBusGProxy *proxy = DBUS_PROXY (_self);
-
       priv->signals = TRUE;
 
 #define CONNECT(p, handler, name, signature...) \
@@ -312,6 +335,39 @@ modem_call_service_connect (ModemOface *_self)
   modem_oface_add_connect_request (_self,
       modem_oface_request_managed (_self, "GetCalls",
           reply_to_call_manager_get_calls, NULL));
+
+  DEBUG("### piiramar starting to connect agent");
+  self->priv->alert_tone_agent_proxy =
+     dbus_g_proxy_new_for_name(dbus_g_bus_get (DBUS_BUS_SYSTEM, NULL),
+       VOICECALL_AGENT_IFACE,
+       VOICECALL_AGENT_PATH,
+       VOICECALL_AGENT_IFACE);
+  DEBUG ("###piiramar agent proxy=%p path=%s bus=%s interface=%s",
+    self->priv->alert_tone_agent_proxy,
+    dbus_g_proxy_get_path (self->priv->alert_tone_agent_proxy),
+    dbus_g_proxy_get_bus_name(self->priv->alert_tone_agent_proxy),
+    dbus_g_proxy_get_interface (self->priv->alert_tone_agent_proxy));
+
+  /*
+   * Register call agent in order to receive requests for
+   * playing local tones
+   */
+  /* TODO get result & handle error case */
+  dbus_g_proxy_call_no_reply(proxy, "RegisterVoicecallAgent",
+  		DBUS_TYPE_G_OBJECT_PATH, dbus_g_proxy_get_path (
+  				self->priv->alert_tone_agent_proxy),
+  		G_TYPE_INVALID);
+
+  DEBUG ("###piiramar agent reg done");
+
+  /* TODO error case */
+  dbus_connection_register_object_path(
+  		dbus_bus_get (DBUS_BUS_SYSTEM, NULL),
+  		VOICECALL_AGENT_PATH,
+  		&modem_call_agent_table,
+  		_self);
+  DEBUG ("###piiramar object path reg done");
+
 }
 
 
@@ -386,6 +442,14 @@ modem_call_service_class_init (ModemCallServiceClass *klass)
           "Emergency Numbers",
           "List of emergency numbers obtained from modem",
           G_TYPE_STRV,
+          G_PARAM_READWRITE | G_PARAM_CONSTRUCT |
+          G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (object_class, PROP_ALERT_TONE_NEEDED,
+      g_param_spec_boolean ("alert-tone-needed",
+          "Alert Tone needed",
+          "True if the network cannot send in-band alerting tone",
+          FALSE, /* default assumption: user connection is OK */
           G_PARAM_READWRITE | G_PARAM_CONSTRUCT |
           G_PARAM_STATIC_STRINGS));
 
@@ -1360,4 +1424,70 @@ modem_call_split_address (char const *address,
   *return_address = g_strndup (address, nan);
   if (address[nan])
     *return_dialstring = g_strdup (address + nan);
+}
+
+/* -------- Voice Call Agent interface -------- */
+static DBusHandlerResult modem_call_agent_generic_dbus_message(
+  DBusConnection *conn, DBusMessage *msg)
+{
+	DBusMessage *reply;
+
+	reply = dbus_message_new_method_return(msg);
+	if (!reply)
+		return DBUS_HANDLER_RESULT_NEED_MEMORY;
+
+	dbus_connection_send(conn, reply, NULL);
+	dbus_message_unref(reply);
+
+	return DBUS_HANDLER_RESULT_HANDLED;
+}
+
+static DBusHandlerResult modem_call_agent_dbus_message_handler(
+		DBusConnection *conn,
+		DBusMessage *msg, void *user_data)
+{
+	const char *method = dbus_message_get_member(msg);
+	const char *iface = dbus_message_get_interface(msg);
+
+	/*if ((strcmp("Introspect", method) == 0) &&
+		(strcmp("org.freedesktop.DBus.Introspectable", iface) == 0))
+		return introspect(conn, msg);*/
+
+	if (strcmp(VOICECALL_AGENT_IFACE, iface) != 0)
+		return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
+
+	if (strcmp("Release", method) == 0) {
+		DEBUG("###release");
+		/* TODO unregister etc. */
+		return modem_call_agent_generic_dbus_message(conn, msg);
+	}
+	else if (strcmp("RingbackTone", method) == 0) {
+      ModemCallService *self = user_data;
+      dbus_bool_t playTone = 0;
+	  DBusMessageIter iter;
+	  DEBUG ("###piiramar### got it");
+	  dbus_message_iter_init(msg, &iter);
+	  if (dbus_message_iter_get_arg_type(&iter) != DBUS_TYPE_BOOLEAN) {
+			DEBUG ("Invalid arguments received, ignore");
+	  }
+
+	  dbus_message_iter_get_basic(&iter, &playTone);
+	  DEBUG ("piiramar playTone from dbus = %d", (int) playTone);
+
+	  if (self->priv->alert_tone_needed == playTone)
+		  DEBUG("piiramar alert state not changed, still %d",self->priv->alert_tone_needed);
+	  else
+		  DEBUG("piiramar alert state changed from %d to %d",self->priv->alert_tone_needed, playTone);
+
+	  self->priv->alert_tone_needed = playTone;
+
+	  return modem_call_agent_generic_dbus_message(conn, msg);
+	}
+
+	return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
+}
+
+static void modem_call_agent_unregister(DBusConnection *connection, void *user_data)
+{
+	DEBUG("");
 }
